@@ -1,0 +1,68 @@
+image: gitpod/workspace-full
+
+tasks:
+  - init: |
+      # Update system and install necessary dependencies
+      sudo apt-get update && sudo apt-get upgrade -y
+      sudo apt-get install -y wget curl unzip git nginx mysql-server php-fpm php-mysql php-xml php-mbstring php-curl php-zip
+
+      # Install Composer (PHP dependency manager)
+      curl -sS https://getcomposer.org/installer | php
+      sudo mv composer.phar /usr/local/bin/composer
+
+      # Set up MySQL database and user for Flarum
+      sudo mysql -e "CREATE DATABASE IF NOT EXISTS flarum_db;"
+      sudo mysql -e "CREATE USER 'flarum_user'@'localhost' IDENTIFIED BY 'Qzz908kasr15!';"
+      sudo mysql -e "GRANT ALL PRIVILEGES ON flarum_db.* TO 'flarum_user'@'localhost';"
+      sudo mysql -e "FLUSH PRIVILEGES;"
+
+      # Install Flarum via Composer
+      cd /workspace
+      composer create-project flarum/flarum .
+
+      # Set permissions for the Flarum directory
+      sudo chown -R $USER:www-data /workspace
+      sudo chmod -R 775 /workspace
+
+      # Nginx configuration for Flarum
+      sudo tee /etc/nginx/sites-available/flarum <<EOF
+      server {
+          listen 80;
+          server_name localhost;
+
+          root /workspace;
+          index index.php;
+
+          location / {
+              try_files \$uri \$uri/ /index.php?\$query_string;
+          }
+
+          location ~ \.php\$ {
+              fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;  # Ensure this PHP version matches the installed version
+              fastcgi_index index.php;
+              fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+              include fastcgi_params;
+          }
+
+          location ~ /\.ht {
+              deny all;
+          }
+      }
+      EOF
+
+      # Remove the default Nginx site configuration to avoid conflicts
+      sudo rm /etc/nginx/sites-enabled/default
+
+      # Enable the Flarum site and restart Nginx
+      sudo ln -s /etc/nginx/sites-available/flarum /etc/nginx/sites-enabled/
+      sudo systemctl restart nginx
+
+      # Restart MySQL service to apply the new user and database
+      sudo systemctl restart mysql
+
+      # Ensure PHP-FPM is running for the installed PHP version
+      sudo systemctl restart php8.2-fpm
+
+      # Start and enable Nginx to ensure it starts on boot
+      sudo systemctl start nginx
+      sudo systemctl enable nginx
